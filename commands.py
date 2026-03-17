@@ -2,10 +2,11 @@
 #  commands.py  —  Lean Voice Command Router
 # ============================================================
 import webbrowser, datetime, subprocess, os
+import json
+from urllib import request as urlrequest
 import pyjokes         # pyre-ignore[21]
 import pyautogui       # pyre-ignore[21]
 import keyboard        # pyre-ignore[21]
-import requests        # pyre-ignore[21]
 import logger          # pyre-ignore[21]
 from config import WEBSITES  # pyre-ignore[21]
 from speech_engine import speak, speak_stream  # pyre-ignore[21]
@@ -14,21 +15,26 @@ import ai_brain  # pyre-ignore[21]
 import ui        # pyre-ignore[21]
 
 
+def _get_json(url, timeout=5):
+    req = urlrequest.Request(url, headers={"User-Agent": "AmulyaAI/1.0"})
+    with urlrequest.urlopen(req, timeout=timeout) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        return json.loads(resp.read().decode(charset, errors="replace"))
+
+
 def get_weather(city="current location"):
     """Fetch weather using free API."""
     try:
         logger.debug(f"Fetching weather for {city}")
         if city.lower() == "current location":
             # Try to get local IP weather without API key
-            r = requests.get("https://wttr.in/?format=j1", timeout=5)
-            data = r.json()
+            data = _get_json("https://wttr.in/?format=j1", timeout=5)
             current = data["current_condition"][0]
             temp = current["temp_C"]
             desc = current["weatherDesc"][0]["value"]
             return f"It's {temp} degrees and {desc}."
         else:
-            r = requests.get(f"https://wttr.in/{city}?format=j1", timeout=5)
-            data = r.json()
+            data = _get_json(f"https://wttr.in/{city}?format=j1", timeout=5)
             current = data["current_condition"][0]
             temp = current["temp_C"]
             desc = current["weatherDesc"][0]["value"]
@@ -155,4 +161,3 @@ def handle(cmd_raw):
     # Tell UI what we asked, stream sentences back instantly
     sentences = ai_brain.ask_stream(cmd_raw)
     speak_stream(sentences)
-

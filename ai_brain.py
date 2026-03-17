@@ -1,7 +1,9 @@
 # ============================================================
 #  ai_brain.py  —  Conversational AI Engine
 # ============================================================
-import requests  # pyre-ignore[21]
+import json
+import socket
+from urllib import request as urlrequest, error as urlerror
 import ui        # pyre-ignore[21]
 import logger    # pyre-ignore[21]
 from config import AI_URL, MAX_MEMORY, AI_PROMPT, PERSIST_MEMORY  # pyre-ignore[21]
@@ -27,6 +29,23 @@ def _clean(t):
     return t.encode("ascii", "ignore").decode("ascii")
 
 
+def _post_json(url, payload, timeout=20):
+    data = json.dumps(payload).encode("utf-8")
+    req = urlrequest.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json,text/plain,*/*",
+            "User-Agent": "AmulyaAI/1.0",
+        },
+    )
+    with urlrequest.urlopen(req, timeout=timeout) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        return resp.read().decode(charset, errors="replace")
+
+
 def ask_stream(question):
     """
     Stream words back, yielding full sentences one by one.
@@ -41,12 +60,11 @@ def ask_stream(question):
     try:
         # We don't force JSON here since pollinations safely returns raw text by default
         logger.debug(f"Sending request to AI: {question}")
-        r = requests.post(AI_URL, json={"messages": list(_mem)}, timeout=20)
-        r.raise_for_status()
+        raw_response = _post_json(AI_URL, {"messages": list(_mem)}, timeout=20)
         
         # Depending on network/proxy, pollinations returns either a JSON chunk or raw text.
         try:
-            response_json = r.json()
+            response_json = json.loads(raw_response)
             if isinstance(response_json, list):
                 if "message" in response_json[0]:
                     full_answer = response_json[0]["message"]["content"]
@@ -56,9 +74,9 @@ def ask_stream(question):
                 full_answer = response_json["choices"][0]["message"]["content"]
             else:
                 full_answer = response_json.get("response", response_json.get("text", str(response_json)))
-        except requests.exceptions.JSONDecodeError:
+        except json.JSONDecodeError:
             # It just gave us straight text, which is what we want anyway!
-            full_answer = r.text
+            full_answer = raw_response
 
         full_answer = _clean(full_answer.strip())
         logger.info(f"AI Response: {full_answer[:100]}...")
@@ -77,10 +95,10 @@ def ask_stream(question):
             except Exception as e:
                 logger.error(f"Failed to save conversation: {e}")
 
-    except requests.Timeout:
+    except socket.timeout:
         logger.warning("AI API timeout")
         yield "I couldn't reach my brain in time. Could you ask again?"
-    except requests.ConnectionError:
+    except urlerror.URLError:
         logger.warning("No internet connection - offline fallback activated")
         yield "I'm offline right now. Could you ask me something simpler or check your internet?"
     except Exception as e:
@@ -103,4 +121,3 @@ def forget():
     if PERSIST_MEMORY:
         clear_persistent_memory()
     logger.info("Memory cleared")
-
